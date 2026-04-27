@@ -19,6 +19,29 @@ python3 -m venv .venv
 .venv/bin/pip install -e .
 ```
 
+## Running it
+
+After install, the `photos-to-slideshow` script lives at `.venv/bin/photos-to-slideshow`.
+Either activate the venv first, or invoke it by full path.
+
+Activate the venv (then `photos-to-slideshow` is on your PATH for this shell):
+```bash
+source .venv/bin/activate
+photos-to-slideshow --input ./photos --audio ./song.mp3
+```
+
+Or invoke without activating:
+```bash
+.venv/bin/photos-to-slideshow --input ./photos --audio ./song.mp3
+```
+
+If you want it available globally (no venv activation needed), install via
+[`pipx`](https://pipx.pypa.io) instead of pip:
+```bash
+pipx install /path/to/photos_to_slideshow
+photos-to-slideshow --input ./photos --audio ./song.mp3
+```
+
 ## Usage
 
 Minimal:
