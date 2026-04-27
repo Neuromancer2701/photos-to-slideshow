@@ -1,6 +1,11 @@
 """Audio inspection and slide-timing math."""
 
 from dataclasses import dataclass
+from pathlib import Path
+
+from mutagen.mp3 import MP3, HeaderNotFoundError
+
+from .errors import UsageError
 
 
 @dataclass(frozen=True)
@@ -41,3 +46,16 @@ def compute_timing(audio_duration: float, n_photos: int, xfade: float) -> SlideT
             downgraded_to_cut=True,
         )
     return SlideTiming(slide_duration=slide, xfade=xfade, downgraded_to_cut=False)
+
+
+def read_audio_duration(path: Path) -> float:
+    """Return MP3 duration in seconds. Raises UsageError on bad/missing file."""
+    if not path.exists():
+        raise UsageError(f"Audio file not found: {path}")
+    try:
+        mp3 = MP3(str(path))
+    except HeaderNotFoundError as e:
+        raise UsageError(f"Not a valid MP3: {path}") from e
+    if mp3.info is None or mp3.info.length <= 0:
+        raise UsageError(f"Could not determine audio duration: {path}")
+    return float(mp3.info.length)

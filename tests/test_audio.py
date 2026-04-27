@@ -1,6 +1,8 @@
 import pytest
+from pathlib import Path
 
-from photos_to_slideshow.audio import SlideTiming, compute_timing
+from photos_to_slideshow.audio import SlideTiming, compute_timing, read_audio_duration
+from photos_to_slideshow.errors import UsageError
 
 
 def test_basic_crossfade_timing():
@@ -35,3 +37,13 @@ def test_auto_downgrade_when_slide_too_short_for_xfade():
 def test_zero_photos_raises():
     with pytest.raises(ValueError):
         compute_timing(audio_duration=10.0, n_photos=0, xfade=0.5)
+
+
+def test_read_audio_duration_returns_seconds(fixtures_dir: Path):
+    dur = read_audio_duration(fixtures_dir / "silent_1s.mp3")
+    assert 0.9 < dur < 1.2  # mp3 frame quantization is loose
+
+
+def test_read_audio_duration_missing_file_raises(tmp_path: Path):
+    with pytest.raises(UsageError):
+        read_audio_duration(tmp_path / "nope.mp3")
