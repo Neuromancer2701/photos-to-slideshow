@@ -78,6 +78,16 @@ def test_argv_uses_rawvideo_stdin_input(tmp_path: Path):
     assert "-y" in argv
 
 
+def test_argv_audio_input_loops_with_stream_loop(tmp_path: Path):
+    """The audio input must be preceded by -stream_loop -1 so the song repeats
+    when the video is longer than one play (for --min-slide-duration)."""
+    audio = tmp_path / "a.mp3"
+    argv = build_streaming_ffmpeg_argv(audio, tmp_path / "o.mp4", _opts(), 10.0)
+    audio_idx = [i for i, a in enumerate(argv) if a == "-i" and argv[i + 1] == str(audio)][0]
+    # The two args immediately before the audio -i should be "-stream_loop -1".
+    assert argv[audio_idx - 2 : audio_idx] == ["-stream_loop", "-1"]
+
+
 def test_argv_includes_canvas_size_and_fps(tmp_path: Path):
     argv = build_streaming_ffmpeg_argv(
         tmp_path / "a.mp3", tmp_path / "o.mp4",

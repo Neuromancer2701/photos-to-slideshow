@@ -57,6 +57,12 @@ photos-to-slideshow --input photos.zip --audio song.mp3 --output recap.mp4
 The slideshow length is auto-fit to the song length: each photo is shown
 for `(audio_duration + (N-1) * crossfade) / N` seconds.
 
+If you have many photos and a short song (so each slide would only display for
+a fraction of a second), pass `--min-slide-duration 3` (or whatever feels
+right). Slides will be held for at least that long and the audio will loop
+to fill the longer video. The CLI also prints a hint when slides come out
+unusually short under the default auto-fit.
+
 ### Common flags
 
 | Flag | Default | Notes |
@@ -70,6 +76,7 @@ for `(audio_duration + (N-1) * crossfade) / N` seconds.
 | `--transition-duration` | `0.5` | crossfade duration in seconds |
 | `--audio-fade` | `1.0` | fade-in/out duration; `0` to disable |
 | `--end-fade` | `1.0` | video fade-to-black at end |
+| `--min-slide-duration` | `0` | minimum seconds per slide; loops audio to cover the longer video |
 | `--keep-temp` | off | keep working temp dirs (debugging) |
 | `--verbose` / `-v` | off | show ffmpeg output |
 | `--quiet` / `-q` | off | suppress progress bar |

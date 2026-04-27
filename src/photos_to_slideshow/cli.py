@@ -35,6 +35,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         dest="transition_duration")
     parser.add_argument("--audio-fade", type=float, default=1.0, dest="audio_fade")
     parser.add_argument("--end-fade", type=float, default=1.0, dest="end_fade")
+    parser.add_argument("--min-slide-duration", type=float, default=0.0,
+                        dest="min_slide_duration",
+                        help="Minimum seconds per slide. If auto-fit would be "
+                             "shorter, slides are held longer and the audio "
+                             "loops to fill the longer video. (default: 0 = "
+                             "auto-fit only, single audio play)")
     parser.add_argument("--missing-date", choices=["mtime", "filename", "skip"],
                         default="mtime", dest="missing_date",
                         help="(only 'mtime' is implemented in v0.1)")
@@ -128,11 +134,26 @@ def _run(args) -> int:
 
         # Step 4: timing math
         audio_dur = audio_mod.read_audio_duration(args.audio)
-        timing = audio_mod.compute_timing(audio_dur, len(frame_paths), xfade)
+        timing = audio_mod.compute_timing(
+            audio_dur, len(frame_paths), xfade, min_slide=args.min_slide_duration,
+        )
         if timing.downgraded_to_cut:
             print(
                 f"warning: slide duration too short for crossfade; "
                 f"using hard cuts instead",
+                file=sys.stderr,
+            )
+        if timing.extended_for_min:
+            print(
+                f"info: holding each slide for {timing.slide_duration:.2f}s "
+                f"(min-slide-duration); audio will loop to fill",
+                file=sys.stderr,
+            )
+        elif args.min_slide_duration == 0.0 and timing.slide_duration < 1.5:
+            print(
+                f"hint: photos are showing for only {timing.slide_duration:.2f}s "
+                f"each. Pass --min-slide-duration 3 (or similar) to slow them "
+                f"down; the audio will loop to fill the longer video.",
                 file=sys.stderr,
             )
         # Clamp audio_fade if song is short

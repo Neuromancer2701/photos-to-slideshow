@@ -90,6 +90,11 @@ def build_streaming_ffmpeg_argv(
         "-s", f"{canvas_w}x{canvas_h}",
         "-r", str(opts.fps),
         "-i", "-",
+        # Loop audio infinitely; atrim below cuts to total_video. If the video
+        # is shorter than one play, only the trimmed portion is used; if the
+        # video is longer (because --min-slide-duration extended it), the song
+        # repeats to fill.
+        "-stream_loop", "-1",
         "-i", str(audio_path),
     ]
 
