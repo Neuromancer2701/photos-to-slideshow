@@ -1,7 +1,10 @@
 """ffmpeg command construction and invocation."""
 
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+from .errors import FFmpegError
 
 
 @dataclass(frozen=True)
@@ -110,3 +113,22 @@ def build_ffmpeg_command(
         str(output),
     ]
     return argv
+
+
+def run_ffmpeg(argv: list[str], verbose: bool = False) -> None:
+    """Run ffmpeg, streaming stderr if verbose, raising FFmpegError on failure."""
+    stderr = None if verbose else subprocess.PIPE
+    proc = subprocess.run(argv, stderr=stderr, text=True)
+    if proc.returncode != 0:
+        msg = proc.stderr or "(no stderr captured; use --verbose to see output)"
+        raise FFmpegError(proc.returncode, msg)
+
+
+def ensure_ffmpeg_available() -> None:
+    """Raise UsageError if ffmpeg is not on PATH."""
+    from shutil import which
+    from .errors import UsageError
+    if which("ffmpeg") is None:
+        raise UsageError(
+            "ffmpeg not found on PATH. Install with: sudo apt install -y ffmpeg"
+        )
