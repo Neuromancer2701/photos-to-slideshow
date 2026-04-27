@@ -1,17 +1,58 @@
 from pathlib import Path
 
-from photos_to_slideshow.render import RenderOptions, build_ffmpeg_command
+import pytest
+
+from photos_to_slideshow.render import (
+    RenderOptions,
+    Segment,
+    build_streaming_ffmpeg_argv,
+    compute_segments,
+    total_video_duration,
+)
 
 
-def test_command_includes_each_frame_as_image_input(tmp_path: Path):
-    frames = [tmp_path / f"{i:04d}.png" for i in range(3)]
-    for f in frames:
-        f.write_bytes(b"x")
-    audio = tmp_path / "a.mp3"
-    audio.write_bytes(b"x")
-    out = tmp_path / "out.mp4"
+# --- compute_segments ---------------------------------------------------------
 
-    opts = RenderOptions(
+def test_compute_segments_single_photo():
+    segs = compute_segments(1, slide_duration=4.0, xfade=0.5)
+    assert segs == [Segment("solo", 0, None, 0.0, 4.0)]
+    assert total_video_duration(segs) == pytest.approx(4.0)
+
+
+def test_compute_segments_cuts_only():
+    segs = compute_segments(3, slide_duration=2.0, xfade=0.0)
+    assert [s.kind for s in segs] == ["solo", "solo", "solo"]
+    assert [s.slide_a for s in segs] == [0, 1, 2]
+    assert [s.length for s in segs] == [2.0, 2.0, 2.0]
+    assert total_video_duration(segs) == pytest.approx(6.0)
+
+
+def test_compute_segments_three_photos_with_crossfade():
+    # D=5, X=1, N=3 -> total = 3*5 - 2*1 = 13
+    segs = compute_segments(3, slide_duration=5.0, xfade=1.0)
+    assert [s.kind for s in segs] == ["solo", "xfade", "solo", "xfade", "solo"]
+    # First and last solo: D - X = 4. Middle solo: D - 2X = 3.
+    assert [s.length for s in segs] == [4.0, 1.0, 3.0, 1.0, 4.0]
+    xfades = [s for s in segs if s.kind == "xfade"]
+    assert (xfades[0].slide_a, xfades[0].slide_b) == (0, 1)
+    assert (xfades[1].slide_a, xfades[1].slide_b) == (1, 2)
+    assert total_video_duration(segs) == pytest.approx(13.0)
+
+
+def test_compute_segments_total_matches_formula_for_many_photos():
+    segs = compute_segments(200, slide_duration=2.0, xfade=0.5)
+    assert total_video_duration(segs) == pytest.approx(200 * 2.0 - 199 * 0.5)
+
+
+def test_compute_segments_zero_photos_raises():
+    with pytest.raises(ValueError):
+        compute_segments(0, slide_duration=2.0, xfade=0.5)
+
+
+# --- build_streaming_ffmpeg_argv ---------------------------------------------
+
+def _opts(**overrides) -> RenderOptions:
+    base = dict(
         slide_duration=2.0,
         xfade=0.5,
         fps=30,
@@ -19,57 +60,67 @@ def test_command_includes_each_frame_as_image_input(tmp_path: Path):
         audio_fade=1.0,
         end_fade=1.0,
     )
-    argv = build_ffmpeg_command(frames, audio, out, opts)
+    base.update(overrides)
+    return RenderOptions(**base)
 
-    # One -loop/-t/-i triple per frame
-    assert argv.count("-loop") == 3
-    assert argv.count(str(audio)) == 1
-    assert str(out) == argv[-1]
+
+def test_argv_uses_rawvideo_stdin_input(tmp_path: Path):
+    audio = tmp_path / "a.mp3"
+    out = tmp_path / "o.mp4"
+    argv = build_streaming_ffmpeg_argv(audio, out, _opts(), total_video=10.0)
+
+    assert "-f" in argv and "rawvideo" in argv
+    assert argv.count("-i") == 2
+    i_indices = [i for i, a in enumerate(argv) if a == "-i"]
+    assert argv[i_indices[0] + 1] == "-"        # first input from stdin
+    assert argv[i_indices[1] + 1] == str(audio)  # second input is the audio file
+    assert argv[-1] == str(out)
     assert "-y" in argv
-    # Filter graph must reference xfade and afade
-    fc_idx = argv.index("-filter_complex")
-    fc = argv[fc_idx + 1]
-    assert "xfade" in fc
-    assert "afade" in fc
 
 
-def test_command_uses_concat_when_no_xfade(tmp_path: Path):
-    frames = [tmp_path / f"{i:04d}.png" for i in range(2)]
-    for f in frames:
-        f.write_bytes(b"x")
-    audio = tmp_path / "a.mp3"
-    audio.write_bytes(b"x")
-    out = tmp_path / "out.mp4"
-
-    opts = RenderOptions(
-        slide_duration=2.0,
-        xfade=0.0,  # cuts only
-        fps=30,
-        canvas_size=(1920, 1080),
-        audio_fade=0.0,
-        end_fade=0.0,
+def test_argv_includes_canvas_size_and_fps(tmp_path: Path):
+    argv = build_streaming_ffmpeg_argv(
+        tmp_path / "a.mp3", tmp_path / "o.mp4",
+        _opts(canvas_size=(1280, 720), fps=24),
+        total_video=5.0,
     )
-    argv = build_ffmpeg_command(frames, audio, out, opts)
+    assert "1280x720" in argv
+    assert "24" in argv
+
+
+def test_argv_audio_filter_includes_fades(tmp_path: Path):
+    argv = build_streaming_ffmpeg_argv(
+        tmp_path / "a.mp3", tmp_path / "o.mp4",
+        _opts(audio_fade=2.0, end_fade=0.0),
+        total_video=20.0,
+    )
     fc = argv[argv.index("-filter_complex") + 1]
-    assert "xfade" not in fc
-    assert "concat" in fc
+    assert "afade=t=in:st=0:d=2.0" in fc
+    assert "afade=t=out" in fc and "d=2.0" in fc
 
 
-def test_command_handles_single_frame(tmp_path: Path):
-    frame = tmp_path / "0000.png"
-    frame.write_bytes(b"x")
-    audio = tmp_path / "a.mp3"
-    audio.write_bytes(b"x")
-    out = tmp_path / "out.mp4"
-
-    opts = RenderOptions(
-        slide_duration=3.0,
-        xfade=0.0,
-        fps=30,
-        canvas_size=(1920, 1080),
-        audio_fade=0.0,
-        end_fade=0.0,
+def test_argv_video_end_fade_present_when_requested(tmp_path: Path):
+    argv = build_streaming_ffmpeg_argv(
+        tmp_path / "a.mp3", tmp_path / "o.mp4",
+        _opts(end_fade=1.5),
+        total_video=10.0,
     )
-    argv = build_ffmpeg_command([frame], audio, out, opts)
-    # No filter_complex needed for one frame; or filter chain still well-formed
-    assert str(out) == argv[-1]
+    fc = argv[argv.index("-filter_complex") + 1]
+    assert "fade=t=out" in fc
+    assert "d=1.5" in fc
+    map_args = [argv[i + 1] for i, a in enumerate(argv) if a == "-map"]
+    assert "[vout]" in map_args
+    assert "[aout]" in map_args
+
+
+def test_argv_no_end_fade_maps_raw_video_stream(tmp_path: Path):
+    argv = build_streaming_ffmpeg_argv(
+        tmp_path / "a.mp3", tmp_path / "o.mp4",
+        _opts(end_fade=0.0, audio_fade=0.0),
+        total_video=10.0,
+    )
+    fc = argv[argv.index("-filter_complex") + 1]
+    # No video filter when end_fade is disabled
+    assert "fade=t=out" not in fc
+    map_args = [argv[i + 1] for i, a in enumerate(argv) if a == "-map"]
+    assert "0:v" in map_args

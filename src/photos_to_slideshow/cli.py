@@ -156,8 +156,10 @@ def _run(args) -> int:
         )
         # Ensure output dir exists
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        argv_ff = render.build_ffmpeg_command(frame_paths, args.audio, args.output, opts)
-        render.run_ffmpeg(argv_ff, verbose=args.verbose)
+        render.render_video_streaming(
+            frame_paths, args.audio, args.output, opts,
+            verbose=args.verbose, quiet=args.quiet,
+        )
 
         print(str(args.output))  # only output to stdout, so the tool is pipeable
         return 0
