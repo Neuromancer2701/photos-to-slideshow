@@ -48,3 +48,14 @@ def extract_date(path: Path) -> DatedPhoto:
         return DatedPhoto(path=path, timestamp=ts, source=DateSource.EXIF)
     mtime = datetime.fromtimestamp(path.stat().st_mtime)
     return DatedPhoto(path=path, timestamp=mtime, source=DateSource.MTIME)
+
+
+def sort_by_date(paths: list[Path]) -> tuple[list[Path], int]:
+    """Return (paths sorted by best-known date asc, count of mtime fallbacks).
+
+    Ties broken by filename for deterministic output.
+    """
+    dated = [extract_date(p) for p in paths]
+    dated.sort(key=lambda d: (d.timestamp, d.path.name))
+    fallback = sum(1 for d in dated if d.source is DateSource.MTIME)
+    return [d.path for d in dated], fallback

@@ -44,3 +44,30 @@ def test_extract_date_handles_malformed_exif(tmp_path: Path):
     p = _make_jpeg(tmp_path / "c.jpg", "not a date")
     result = extract_date(p)
     assert result.source is DateSource.MTIME
+
+
+from photos_to_slideshow.metadata import sort_by_date
+
+
+def test_sort_by_date_orders_chronologically(tmp_path: Path):
+    a = _make_jpeg(tmp_path / "a.jpg", "2024:06:15 14:30:00")
+    b = _make_jpeg(tmp_path / "b.jpg", "2024:01:01 09:00:00")
+    c = _make_jpeg(tmp_path / "c.jpg", "2024:12:31 23:59:00")
+    sorted_paths, fallback_count = sort_by_date([a, b, c])
+    assert sorted_paths == [b, a, c]
+    assert fallback_count == 0
+
+
+def test_sort_by_date_counts_mtime_fallbacks(tmp_path: Path):
+    a = _make_jpeg(tmp_path / "a.jpg", "2024:06:15 14:30:00")
+    b = _make_jpeg(tmp_path / "b.jpg")  # no EXIF -> mtime
+    sorted_paths, fallback_count = sort_by_date([a, b])
+    assert fallback_count == 1
+
+
+def test_sort_by_date_tiebreaks_by_filename(tmp_path: Path):
+    # Same timestamp, ordering must be stable on filename
+    a = _make_jpeg(tmp_path / "z.jpg", "2024:06:15 14:30:00")
+    b = _make_jpeg(tmp_path / "a.jpg", "2024:06:15 14:30:00")
+    sorted_paths, _ = sort_by_date([a, b])
+    assert sorted_paths == [b, a]
