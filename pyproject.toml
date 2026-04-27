@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "photos-to-slideshow"
+version = "0.1.0"
+description = "Turn a folder of photos plus an MP3 into an MP4 slideshow."
+requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=10.0",
+    "pillow-heif>=0.16",
+    "mutagen>=1.47",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+photos-to-slideshow = "photos_to_slideshow.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+markers = ["slow: tests that need ffmpeg and take >1s"]
+testpaths = ["tests"]
