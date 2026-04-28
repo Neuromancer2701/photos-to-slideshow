@@ -83,8 +83,18 @@ unusually short under the default auto-fit.
 
 ## Supported formats
 
-Input: `.jpg`, `.jpeg`, `.png`, `.heic`, `.heif`. Photos missing EXIF date use
-file mtime as the fallback; a summary is printed at the end.
+Input: `.jpg`, `.jpeg`, `.png`, `.heic`, `.heif`.
+
+Sort order, in priority order:
+
+1. EXIF `DateTimeOriginal`
+2. Google Photos Takeout JSON sidecar — if a file named
+   `{photo}.supplemental-metadata.json` (or the older `{photo}.json`) sits
+   next to the photo, its `photoTakenTime.timestamp` is used. Drop the whole
+   Takeout export into a directory or zip and the dates "just work" even
+   when Google stripped the EXIF.
+3. File mtime (with a warning summary at the end listing how many photos
+   needed this fallback).
 
 Output: H.264 (yuv420p) + AAC in MP4. Plays in VLC on Windows and any modern player.
 
