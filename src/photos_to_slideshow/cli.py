@@ -21,7 +21,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--input", type=Path, required=True,
                         help="Directory or .zip of photos")
     parser.add_argument("--audio", type=Path, required=True,
-                        help="MP3 soundtrack")
+                        help="MP3 soundtrack — either a single .mp3 file or a "
+                             "directory of .mp3 files. A directory is played "
+                             "in natural-sort order (track2 before track10) "
+                             "and the playlist loops if the video is longer.")
     parser.add_argument("--output", type=Path, default=Path("slideshow.mp4"),
                         help="Output MP4 path (default: ./slideshow.mp4)")
     parser.add_argument("--resolution", default="1920x1080",
@@ -133,7 +136,14 @@ def _run(args) -> int:
             raise NoUsablePhotosError("All images failed to decode")
 
         # Step 4: timing math
-        audio_dur = audio_mod.read_audio_duration(args.audio)
+        audio_source = audio_mod.resolve_audio_source(args.audio)
+        audio_dur = audio_source.total_duration
+        if audio_source.is_playlist:
+            print(
+                f"info: playing {len(audio_source.files)} audio files in order "
+                f"({audio_dur:.1f}s total)",
+                file=sys.stderr,
+            )
         timing = audio_mod.compute_timing(
             audio_dur, len(frame_paths), xfade, min_slide=args.min_slide_duration,
         )
@@ -177,8 +187,19 @@ def _run(args) -> int:
         )
         # Ensure output dir exists
         args.output.parent.mkdir(parents=True, exist_ok=True)
+
+        # When the soundtrack is a playlist, stream-copy the MP3s into a
+        # single combined file. ffmpeg's concat demuxer does not support
+        # `-stream_loop`, but a single file does -- so this lets the playlist
+        # repeat normally when --min-slide-duration extends the video.
+        if audio_source.is_playlist:
+            audio_input = frames_dir / "audio_combined.mp3"
+            audio_mod.concat_mp3_files(list(audio_source.files), audio_input)
+        else:
+            audio_input = audio_source.files[0]
+
         render.render_video_streaming(
-            frame_paths, args.audio, args.output, opts,
+            frame_paths, audio_input, args.output, opts,
             verbose=args.verbose, quiet=args.quiet,
         )
 

@@ -1,11 +1,13 @@
 """Audio inspection and slide-timing math."""
 
+import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 from mutagen.mp3 import MP3, HeaderNotFoundError
 
-from .errors import UsageError
+from .errors import FFmpegError, UsageError
 
 
 @dataclass(frozen=True)
@@ -80,3 +82,92 @@ def read_audio_duration(path: Path) -> float:
     if mp3.info is None or mp3.info.length <= 0:
         raise UsageError(f"Could not determine audio duration: {path}")
     return float(mp3.info.length)
+
+
+@dataclass(frozen=True)
+class AudioSource:
+    """One or more audio files plus their summed duration."""
+    files: tuple[Path, ...]
+    total_duration: float
+
+    @property
+    def is_playlist(self) -> bool:
+        return len(self.files) > 1
+
+
+def _natural_sort_key(name: str) -> tuple:
+    """Key that sorts 'track2' before 'track10' (digits compared as ints)."""
+    return tuple(
+        int(part) if part.isdigit() else part
+        for part in re.split(r"(\d+)", name.lower())
+    )
+
+
+def resolve_audio_source(path: Path) -> AudioSource:
+    """Resolve --audio: a single .mp3 file, or a directory of .mp3 files.
+
+    For a directory, files are taken in natural-sort order (track2 < track10)
+    and their durations summed. Non-mp3 entries and subdirectories are
+    ignored. Empty directories raise UsageError.
+    """
+    if path.is_dir():
+        mp3s = [
+            p for p in path.iterdir()
+            if p.is_file() and p.suffix.lower() == ".mp3"
+        ]
+        if not mp3s:
+            raise UsageError(f"No .mp3 files found in directory: {path}")
+        mp3s.sort(key=lambda p: _natural_sort_key(p.name))
+        total = sum(read_audio_duration(p) for p in mp3s)
+        return AudioSource(tuple(mp3s), total)
+
+    if not path.exists():
+        raise UsageError(f"Audio path not found: {path}")
+    if path.suffix.lower() != ".mp3":
+        raise UsageError(
+            f"Audio must be an .mp3 file or a directory of .mp3 files: {path}"
+        )
+    return AudioSource((path,), read_audio_duration(path))
+
+
+def write_concat_playlist(files: list[Path], dest: Path) -> None:
+    """Write an ffmpeg concat-demuxer playlist of absolute paths.
+
+    The concat demuxer expects ``file 'PATH'`` lines. Single quotes inside
+    a path are escaped by closing, escaping the quote, and reopening:
+    ``'\\''``.
+    """
+    lines = []
+    for f in files:
+        abs_str = str(f.resolve())
+        escaped = abs_str.replace("'", "'\\''")
+        lines.append(f"file '{escaped}'")
+    dest.write_text("\n".join(lines) + "\n")
+
+
+def concat_mp3_files(files: list[Path], dest: Path) -> None:
+    """Concatenate MP3s into a single file using ``ffmpeg -f concat -c copy``.
+
+    Stream-copies the audio (no re-encode), so this is fast and lossless.
+    The resulting file is a normal MP3 that can be looped with
+    ``-stream_loop -1`` -- which the concat demuxer itself does not support.
+    """
+    if not files:
+        raise ValueError("concat_mp3_files requires at least one file")
+    playlist = dest.with_name(dest.name + ".txt")
+    try:
+        write_concat_playlist(files, playlist)
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-f", "concat", "-safe", "0",
+                "-i", str(playlist),
+                "-c", "copy", str(dest),
+            ],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            raise FFmpegError(result.returncode, result.stderr.decode(errors="replace"))
+    finally:
+        if playlist.exists():
+            playlist.unlink()

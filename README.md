@@ -63,12 +63,26 @@ right). Slides will be held for at least that long and the audio will loop
 to fill the longer video. The CLI also prints a hint when slides come out
 unusually short under the default auto-fit.
 
+### Multiple soundtracks
+
+`--audio` can also be a directory of `.mp3` files, in which case they play
+back-to-back in natural-sort order (so `track2.mp3` plays before
+`track10.mp3`):
+
+```bash
+photos-to-slideshow --input ./photos --audio ./songs/ --output recap.mp4
+```
+
+The total playlist duration drives the auto-fit slide length. If the video
+ends up longer than the playlist (e.g. via `--min-slide-duration`), the
+whole playlist loops to fill the remaining time.
+
 ### Common flags
 
 | Flag | Default | Notes |
 |---|---|---|
 | `--input` | (required) | directory or `.zip` of photos |
-| `--audio` | (required) | `.mp3` soundtrack |
+| `--audio` | (required) | `.mp3` file, or a directory of `.mp3` files (played in natural-sort order, looped to cover longer videos) |
 | `--output` | `./slideshow.mp4` | output path |
 | `--resolution` | `1920x1080` | output frame size |
 | `--fps` | `30` | output framerate |
