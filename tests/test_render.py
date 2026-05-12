@@ -134,3 +134,28 @@ def test_argv_no_end_fade_maps_raw_video_stream(tmp_path: Path):
     assert "fade=t=out" not in fc
     map_args = [argv[i + 1] for i, a in enumerate(argv) if a == "-map"]
     assert "0:v" in map_args
+
+
+def test_argv_quiets_ffmpeg_when_not_verbose(tmp_path: Path):
+    """Without --verbose, ffmpeg must be told not to emit its default per-
+    second progress lines; otherwise stderr's pipe buffer fills on long
+    encodes and the whole pipeline deadlocks (ffmpeg blocks on stderr write,
+    stops reading stdin, Python blocks on stdin.write, tqdm freezes)."""
+    argv = build_streaming_ffmpeg_argv(
+        tmp_path / "a.mp3", tmp_path / "o.mp4", _opts(), total_video=10.0,
+    )
+    assert "-hide_banner" in argv
+    assert "-nostats" in argv
+    loglevel_idx = argv.index("-loglevel")
+    assert argv[loglevel_idx + 1] == "error"
+
+
+def test_argv_keeps_ffmpeg_output_when_verbose(tmp_path: Path):
+    """--verbose preserves ffmpeg's full stderr for diagnostics."""
+    argv = build_streaming_ffmpeg_argv(
+        tmp_path / "a.mp3", tmp_path / "o.mp4", _opts(), total_video=10.0,
+        verbose=True,
+    )
+    assert "-loglevel" not in argv
+    assert "-nostats" not in argv
+    assert "-hide_banner" not in argv

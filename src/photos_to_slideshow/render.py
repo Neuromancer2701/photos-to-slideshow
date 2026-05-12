@@ -7,6 +7,7 @@ few hundred photos.
 """
 
 import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -79,12 +80,21 @@ def build_streaming_ffmpeg_argv(
     output_path: Path,
     opts: RenderOptions,
     total_video: float,
+    verbose: bool = False,
 ) -> list[str]:
-    """Build the ffmpeg argv: one rawvideo input on stdin + one audio input."""
+    """Build the ffmpeg argv: one rawvideo input on stdin + one audio input.
+
+    When ``verbose`` is False, ffmpeg is told not to emit its default
+    per-second progress lines or info banner. Otherwise its stderr pipe
+    fills up on long encodes (>~5 min), ffmpeg blocks on stderr write,
+    stops reading stdin, and the whole pipeline deadlocks.
+    """
     canvas_w, canvas_h = opts.canvas_size
 
-    argv: list[str] = [
-        "ffmpeg", "-y",
+    argv: list[str] = ["ffmpeg", "-y"]
+    if not verbose:
+        argv += ["-hide_banner", "-loglevel", "error", "-nostats"]
+    argv += [
         "-f", "rawvideo",
         "-pix_fmt", "rgb24",
         "-s", f"{canvas_w}x{canvas_h}",
@@ -149,10 +159,29 @@ def render_video_streaming(
 
     segments = compute_segments(len(frame_paths), opts.slide_duration, opts.xfade)
     total_video = total_video_duration(segments)
-    argv = build_streaming_ffmpeg_argv(audio_path, output_path, opts, total_video)
+    argv = build_streaming_ffmpeg_argv(
+        audio_path, output_path, opts, total_video, verbose=verbose,
+    )
 
     stderr = None if verbose else subprocess.PIPE
     proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stderr=stderr)
+
+    # Drain stderr concurrently. Without this, ffmpeg's stderr pipe can fill
+    # on long encodes (>~5 min); ffmpeg then blocks on write to stderr, which
+    # blocks it on read from stdin, which freezes our frame-writing loop.
+    # The argv flags above keep stderr nearly empty in normal operation; this
+    # thread is defence-in-depth in case anything (warnings from a re-muxed
+    # audio file, codec messages, etc.) still emits to stderr.
+    stderr_chunks: list[bytes] = []
+    drainer: threading.Thread | None = None
+    if proc.stderr is not None:
+        def _drain(stream, sink):
+            for chunk in iter(lambda: stream.read(4096), b""):
+                sink.append(chunk)
+        drainer = threading.Thread(
+            target=_drain, args=(proc.stderr, stderr_chunks), daemon=True,
+        )
+        drainer.start()
 
     try:
         _stream_frames(proc.stdin, frame_paths, segments, opts.fps, quiet=quiet)
@@ -167,9 +196,11 @@ def render_video_streaming(
                 pass
 
     rc = proc.wait()
+    if drainer is not None:
+        drainer.join()
     if rc != 0:
         msg = (
-            proc.stderr.read().decode(errors="replace")
+            b"".join(stderr_chunks).decode(errors="replace")
             if proc.stderr is not None
             else "(no stderr captured; use --verbose to see ffmpeg output)"
         )
