@@ -107,8 +107,11 @@ Sort order, in priority order:
    next to the photo, its `photoTakenTime.timestamp` is used. Drop the whole
    Takeout export into a directory or zip and the dates "just work" even
    when Google stripped the EXIF.
-3. File mtime (with a warning summary at the end listing how many photos
-   needed this fallback).
+3. Photos with no EXIF and no Takeout JSON are **appended at the end** of
+   the slideshow (sorted among themselves by file mtime). mtime is
+   intentionally not interleaved with real capture dates because downloaded
+   photos pick up their download time rather than their capture time. A
+   warning summary tells you how many photos ended up in this tail.
 
 Output: H.264 (yuv420p) + AAC in MP4. Plays in VLC on Windows and any modern player.
 

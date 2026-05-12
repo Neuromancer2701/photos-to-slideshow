@@ -95,11 +95,24 @@ def extract_date(path: Path) -> DatedPhoto:
 
 
 def sort_by_date(paths: list[Path]) -> tuple[list[Path], int]:
-    """Return (paths sorted by best-known date asc, count of mtime fallbacks).
+    """Return (paths in slideshow order, count of photos with no real date).
+
+    Photos with EXIF or Takeout JSON dates sort chronologically. Photos
+    with only mtime are appended at the end (sorted among themselves by
+    mtime). Rationale: mtime is unreliable -- downloaded photos pick up
+    their download time rather than capture time -- so letting it
+    interleave with real capture dates would misplace those photos in
+    the timeline.
 
     Ties broken by filename for deterministic output.
     """
     dated = [extract_date(p) for p in paths]
-    dated.sort(key=lambda d: (d.timestamp, d.path.name))
+    # Sort key: (group, timestamp, name). group=0 for real dates (EXIF/JSON),
+    # group=1 for mtime fallbacks, so mtime photos always end up after.
+    dated.sort(key=lambda d: (
+        1 if d.source is DateSource.MTIME else 0,
+        d.timestamp,
+        d.path.name,
+    ))
     fallback = sum(1 for d in dated if d.source is DateSource.MTIME)
     return [d.path for d in dated], fallback

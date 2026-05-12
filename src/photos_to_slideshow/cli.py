@@ -109,7 +109,7 @@ def _run(args) -> int:
         if mtime_fallbacks:
             print(
                 f"warning: {mtime_fallbacks} of {len(sorted_paths)} photos lacked "
-                f"EXIF date; used file mtime instead",
+                f"EXIF/JSON metadata; placing them at the end of the slideshow",
                 file=sys.stderr,
             )
 

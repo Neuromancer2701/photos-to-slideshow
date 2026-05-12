@@ -123,3 +123,48 @@ def test_sort_by_date_tiebreaks_by_filename(tmp_path: Path):
     b = _make_jpeg(tmp_path / "a.jpg", "2024:06:15 14:30:00")
     sorted_paths, _ = sort_by_date([a, b])
     assert sorted_paths == [b, a]
+
+
+def test_sort_by_date_appends_no_metadata_photos_at_end(tmp_path: Path):
+    """Photos without EXIF or JSON go to the end regardless of mtime.
+
+    mtime is often unreliable (downloaded photos take on their download time
+    rather than capture time), so we don't let it interleave with real
+    capture dates.
+    """
+    import os, time
+    # Photo with real 2024 EXIF
+    dated = _make_jpeg(tmp_path / "dated.jpg", "2024:06:15 14:30:00")
+    # Photo with NO EXIF -- mtime set to 2020, which would sort BEFORE 'dated'
+    # if mtime were treated as a real capture date. Expected: 'dated' first.
+    undated = _make_jpeg(tmp_path / "undated.jpg")
+    early = time.mktime(datetime(2020, 1, 1).timetuple())
+    os.utime(undated, (early, early))
+    sorted_paths, fallback_count = sort_by_date([undated, dated])
+    assert sorted_paths == [dated, undated]
+    assert fallback_count == 1
+
+
+def test_sort_by_date_orders_undated_group_by_mtime(tmp_path: Path):
+    """Within the undated tail, photos sort by mtime (earlier first)."""
+    import os
+    a = _make_jpeg(tmp_path / "a.jpg")  # no EXIF
+    b = _make_jpeg(tmp_path / "b.jpg")  # no EXIF
+    os.utime(a, (2000000.0, 2000000.0))  # later
+    os.utime(b, (1000000.0, 1000000.0))  # earlier
+    sorted_paths, _ = sort_by_date([a, b])
+    assert sorted_paths == [b, a]
+
+
+def test_sort_by_date_takeout_json_counts_as_real_metadata(tmp_path: Path):
+    """JSON sidecar counts as real metadata, not a fallback."""
+    import os
+    dated_exif = _make_jpeg(tmp_path / "exif.jpg", "2024:06:15 14:30:00")
+    dated_json = _make_jpeg(tmp_path / "json.jpg")  # no EXIF
+    _write_takeout_json(dated_json, 1577836800)  # 2020-01-01 UTC
+    undated = _make_jpeg(tmp_path / "undated.jpg")
+    os.utime(undated, (0, 0))
+    sorted_paths, fallback_count = sort_by_date([undated, dated_exif, dated_json])
+    # JSON (2020) < EXIF (2024) < undated (end)
+    assert sorted_paths == [dated_json, dated_exif, undated]
+    assert fallback_count == 1
