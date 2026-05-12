@@ -98,6 +98,35 @@ def test_extract_date_falls_through_when_takeout_json_zero_timestamp(tmp_path: P
     assert result.source is DateSource.MTIME
 
 
+def test_extract_date_supports_truncated_supplemental_suffix(tmp_path: Path):
+    """Google truncates 'supplemental-metadata' to fit a ~51-char limit:
+    e.g. PXL_20251119_152013744~2.jpg + .supplemental-meta.json = 51 chars."""
+    p = _make_jpeg(tmp_path / "PXL_20251119_152013744~2.jpg")  # no EXIF
+    _write_takeout_json(p, 1763565613, suffix=".supplemental-meta.json")
+    result = extract_date(p)
+    assert result.source is DateSource.JSON
+    assert result.timestamp == datetime.fromtimestamp(1763565613)
+
+
+def test_extract_date_supports_any_supplemental_truncation(tmp_path: Path):
+    """Match any '.supplemental-<anything>.json' so future truncations work."""
+    p = _make_jpeg(tmp_path / "really_extremely_long_filename_PXL_20251119.jpg")
+    _write_takeout_json(p, 1234567890, suffix=".supplemental-m.json")
+    result = extract_date(p)
+    assert result.source is DateSource.JSON
+    assert result.timestamp == datetime.fromtimestamp(1234567890)
+
+
+def test_extract_date_prefers_canonical_supplemental_over_truncated(tmp_path: Path):
+    """If both canonical and truncated sidecars exist, prefer the canonical."""
+    p = _make_jpeg(tmp_path / "z.jpg")  # no EXIF
+    _write_takeout_json(p, 1577836800)  # canonical: ".supplemental-metadata.json"
+    _write_takeout_json(p, 9999999999, suffix=".supplemental-meta.json")  # truncated
+    result = extract_date(p)
+    assert result.source is DateSource.JSON
+    assert result.timestamp == datetime.fromtimestamp(1577836800)
+
+
 from photos_to_slideshow.metadata import sort_by_date
 
 

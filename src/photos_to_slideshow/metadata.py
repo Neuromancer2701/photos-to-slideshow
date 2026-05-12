@@ -11,11 +11,13 @@ from PIL import Image, UnidentifiedImageError
 # Pillow's EXIF tag for DateTimeOriginal
 _EXIF_DATETIME_ORIGINAL = 0x9003
 
-# Suffixes Google Photos Takeout uses for the JSON sidecar that lives next
-# to a photo. Tried in order; the newer "supplemental-metadata" form has been
-# the standard since late 2024 but the older bare ".json" form still appears
-# in old exports.
-_TAKEOUT_SIDECAR_SUFFIXES = (".supplemental-metadata.json", ".json")
+# Suffix on the canonical Google Photos Takeout sidecar. Google truncates this
+# to keep total filenames under ~51 chars, so we also glob for any
+# ".supplemental-*.json" to catch variants like ".supplemental-meta.json".
+# Very old exports use a bare ".json" suffix; we keep that as a final fallback.
+_TAKEOUT_CANONICAL_SUFFIX = ".supplemental-metadata.json"
+_TAKEOUT_TRUNCATED_GLOB = ".supplemental-*.json"
+_TAKEOUT_LEGACY_SUFFIX = ".json"
 
 
 class DateSource(Enum):
@@ -46,21 +48,42 @@ def _read_exif_datetime(path: Path) -> datetime | None:
         return None
 
 
+def _iter_takeout_sidecars(path: Path):
+    """Yield possible Takeout JSON sidecars for a photo, best match first.
+
+    Order: canonical full suffix -> truncated supplemental-* forms (least
+    truncated first) -> legacy bare .json.
+    """
+    canonical = path.with_name(path.name + _TAKEOUT_CANONICAL_SUFFIX)
+    if canonical.exists():
+        yield canonical
+    # Truncated suffixes like ".supplemental-meta.json" or ".supplemental-m.json".
+    # Sort by descending suffix length so a less-truncated form wins.
+    truncated = sorted(
+        (s for s in path.parent.glob(path.name + _TAKEOUT_TRUNCATED_GLOB)
+         if s != canonical),
+        key=lambda p: -len(p.name),
+    )
+    yield from truncated
+    legacy = path.with_name(path.name + _TAKEOUT_LEGACY_SUFFIX)
+    if legacy.exists() and legacy != canonical:
+        yield legacy
+
+
 def _read_takeout_json_datetime(path: Path) -> datetime | None:
     """Read photoTakenTime from a Google Photos Takeout JSON sidecar.
 
     The sidecar lives alongside the photo: e.g. ``foo.jpg`` ->
-    ``foo.jpg.supplemental-metadata.json``. The relevant field is::
+    ``foo.jpg.supplemental-metadata.json``. Google truncates that suffix
+    to fit a ~51-character total filename budget (so ``foo.jpg`` may have
+    ``foo.jpg.supplemental-meta.json`` instead). The relevant field is::
 
         "photoTakenTime": {"timestamp": "1424221441", ...}
 
     Returns None if no sidecar is found, the JSON is unreadable, or the
     timestamp is missing/zero.
     """
-    for suffix in _TAKEOUT_SIDECAR_SUFFIXES:
-        sidecar = path.with_name(path.name + suffix)
-        if not sidecar.exists():
-            continue
+    for sidecar in _iter_takeout_sidecars(path):
         try:
             data = json.loads(sidecar.read_text())
             ts = data.get("photoTakenTime", {}).get("timestamp")
