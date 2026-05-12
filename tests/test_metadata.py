@@ -108,9 +108,11 @@ def test_extract_date_supports_truncated_supplemental_suffix(tmp_path: Path):
     assert result.timestamp == datetime.fromtimestamp(1763565613)
 
 
-def test_extract_date_supports_any_supplemental_truncation(tmp_path: Path):
-    """Match any '.supplemental-<anything>.json' so future truncations work."""
-    p = _make_jpeg(tmp_path / "really_extremely_long_filename_PXL_20251119.jpg")
+def test_extract_date_supports_aggressive_supplemental_truncation(tmp_path: Path):
+    """Photo of 31 chars leaves 15 chars for the middle, yielding the
+    truncation '.supplemental-m.json' under Google's 51-char rule."""
+    photo_name = "a" * 27 + ".jpg"  # 31 chars
+    p = _make_jpeg(tmp_path / photo_name)
     _write_takeout_json(p, 1234567890, suffix=".supplemental-m.json")
     result = extract_date(p)
     assert result.source is DateSource.JSON
@@ -125,6 +127,41 @@ def test_extract_date_prefers_canonical_supplemental_over_truncated(tmp_path: Pa
     result = extract_date(p)
     assert result.source is DateSource.JSON
     assert result.timestamp == datetime.fromtimestamp(1577836800)
+
+
+def test_extract_date_supports_hyphen_dropped_truncation(tmp_path: Path):
+    """When the truncation cuts inside 'supplemental-', the hyphen is gone.
+    e.g. PXL_20260511_132759207.PORTRAIT~2.jpg (37) + .suppleme.json (14) = 51.
+    """
+    p = _make_jpeg(tmp_path / "PXL_20260511_132759207.PORTRAIT~2.jpg")  # 37 chars
+    _write_takeout_json(p, 1763565613, suffix=".suppleme.json")
+    result = extract_date(p)
+    assert result.source is DateSource.JSON
+    assert result.timestamp == datetime.fromtimestamp(1763565613)
+
+
+def test_extract_date_supports_photo_name_truncated_when_too_long(tmp_path: Path):
+    """When the photo name alone is too long for the 51-char budget, Google
+    truncates the PHOTO NAME (cutting off .jpg and other tail chars) and
+    appends just '.json' -- no .supplemental-* segment at all.
+
+    e.g. original_<uuid>_PXL_..._144130308~2.jpg (74) ->
+         original_<uuid>_.json (51, photo truncated to 46 chars).
+    """
+    photo_name = "original_c61b146c-430d-4743-9c6d-d6eb6e88f306_PXL_20251119_144130308~2.jpg"
+    assert len(photo_name) == 74  # canary
+    p = _make_jpeg(tmp_path / photo_name)
+    # Sidecar uses the first 46 chars of the photo name then ".json".
+    sidecar_name = photo_name[:46] + ".json"
+    assert len(sidecar_name) == 51
+    import json as _json
+    (tmp_path / sidecar_name).write_text(_json.dumps({
+        "title": photo_name,
+        "photoTakenTime": {"timestamp": "1763561890"},
+    }))
+    result = extract_date(p)
+    assert result.source is DateSource.JSON
+    assert result.timestamp == datetime.fromtimestamp(1763561890)
 
 
 from photos_to_slideshow.metadata import sort_by_date

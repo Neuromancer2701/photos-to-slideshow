@@ -11,13 +11,17 @@ from PIL import Image, UnidentifiedImageError
 # Pillow's EXIF tag for DateTimeOriginal
 _EXIF_DATETIME_ORIGINAL = 0x9003
 
-# Suffix on the canonical Google Photos Takeout sidecar. Google truncates this
-# to keep total filenames under ~51 chars, so we also glob for any
-# ".supplemental-*.json" to catch variants like ".supplemental-meta.json".
-# Very old exports use a bare ".json" suffix; we keep that as a final fallback.
-_TAKEOUT_CANONICAL_SUFFIX = ".supplemental-metadata.json"
-_TAKEOUT_TRUNCATED_GLOB = ".supplemental-*.json"
-_TAKEOUT_LEGACY_SUFFIX = ".json"
+# Google Photos Takeout caps generated sidecar filenames at 51 characters
+# and truncates the ".supplemental-metadata" middle (or, if even that doesn't
+# fit, the photo name itself) to fit the budget. Examples observed in real
+# exports:
+#   foo.jpg                       -> foo.jpg.supplemental-metadata.json   (37, fits)
+#   PXL_..._152013744~2.jpg       -> ....jpg.supplemental-meta.json       (51, mid trunc)
+#   PXL_..._132759207.PORTRAIT~2  -> ....jpg.suppleme.json                (51, mid trunc, hyphen cut)
+#   original_<uuid>_PXL_...~2.jpg -> original_<uuid>_.json                (51, photo trunc)
+_TAKEOUT_NAME_BUDGET = 51
+_TAKEOUT_MIDDLE_FULL = ".supplemental-metadata"
+_TAKEOUT_JSON_EXT = ".json"
 
 
 class DateSource(Enum):
@@ -48,26 +52,48 @@ def _read_exif_datetime(path: Path) -> datetime | None:
         return None
 
 
-def _iter_takeout_sidecars(path: Path):
-    """Yield possible Takeout JSON sidecars for a photo, best match first.
+def _predicted_sidecar_names(photo_name: str) -> list[str]:
+    """Predict the Takeout sidecar filename(s) for a photo, best match first.
 
-    Order: canonical full suffix -> truncated supplemental-* forms (least
-    truncated first) -> legacy bare .json.
+    Applies Google's ~51-char filename budget: try the canonical full suffix,
+    then progressively shorter truncations of ".supplemental-metadata", then
+    a bare ".json", and finally a photo-name-truncated form when the photo
+    name itself is too long to fit anything else.
     """
-    canonical = path.with_name(path.name + _TAKEOUT_CANONICAL_SUFFIX)
-    if canonical.exists():
-        yield canonical
-    # Truncated suffixes like ".supplemental-meta.json" or ".supplemental-m.json".
-    # Sort by descending suffix length so a less-truncated form wins.
-    truncated = sorted(
-        (s for s in path.parent.glob(path.name + _TAKEOUT_TRUNCATED_GLOB)
-         if s != canonical),
-        key=lambda p: -len(p.name),
-    )
-    yield from truncated
-    legacy = path.with_name(path.name + _TAKEOUT_LEGACY_SUFFIX)
-    if legacy.exists() and legacy != canonical:
-        yield legacy
+    names: list[str] = []
+    seen: set[str] = set()
+
+    def push(name: str) -> None:
+        if name not in seen:
+            seen.add(name)
+            names.append(name)
+
+    canonical = photo_name + _TAKEOUT_MIDDLE_FULL + _TAKEOUT_JSON_EXT
+    push(canonical)
+
+    available = _TAKEOUT_NAME_BUDGET - len(photo_name) - len(_TAKEOUT_JSON_EXT)
+    if available > 0:
+        # Truncate the middle to `available` chars, longest first so the
+        # closest-to-canonical form wins ties.
+        max_middle = min(available, len(_TAKEOUT_MIDDLE_FULL))
+        for n in range(max_middle, 0, -1):
+            push(photo_name + _TAKEOUT_MIDDLE_FULL[:n] + _TAKEOUT_JSON_EXT)
+    if available >= 0:
+        push(photo_name + _TAKEOUT_JSON_EXT)  # no middle: legacy or zero-budget
+    # Photo name longer than the budget: Google truncates the photo name.
+    photo_trunc_len = _TAKEOUT_NAME_BUDGET - len(_TAKEOUT_JSON_EXT)
+    if len(photo_name) > photo_trunc_len:
+        push(photo_name[:photo_trunc_len] + _TAKEOUT_JSON_EXT)
+
+    return names
+
+
+def _iter_takeout_sidecars(path: Path):
+    """Yield existing sidecars for a photo in priority order."""
+    for name in _predicted_sidecar_names(path.name):
+        sidecar = path.with_name(name)
+        if sidecar.exists():
+            yield sidecar
 
 
 def _read_takeout_json_datetime(path: Path) -> datetime | None:

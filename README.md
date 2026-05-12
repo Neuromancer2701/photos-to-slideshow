@@ -103,12 +103,13 @@ Sort order, in priority order:
 
 1. EXIF `DateTimeOriginal`
 2. Google Photos Takeout JSON sidecar — if a file matching
-   `{photo}.supplemental-metadata.json` (or any truncated variant such as
-   `{photo}.supplemental-meta.json` that Google produces to fit a ~51-char
-   total-filename budget, or the older `{photo}.json`) sits next to the
-   photo, its `photoTakenTime.timestamp` is used. Drop the whole Takeout
-   export into a directory or zip and the dates "just work" even when
-   Google stripped the EXIF.
+   `{photo}.supplemental-metadata.json` (or any of the truncated forms
+   Google generates to fit its 51-char total-filename budget — for example
+   `.supplemental-meta.json`, `.suppleme.json`, or even just `{prefix}.json`
+   when the photo name itself is too long — or the older `{photo}.json`)
+   sits next to the photo, its `photoTakenTime.timestamp` is used. Drop the
+   whole Takeout export into a directory or zip and the dates "just work"
+   even when Google stripped the EXIF.
 3. Photos with no EXIF and no Takeout JSON are **appended at the end** of
    the slideshow (sorted among themselves by file mtime). mtime is
    intentionally not interleaved with real capture dates because downloaded
