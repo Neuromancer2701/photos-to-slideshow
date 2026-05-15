@@ -103,6 +103,38 @@ class _ReorderHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def do_POST(self):  # noqa: N802
+        if self.path == "/lock":
+            self._handle_lock()
+        else:
+            self.send_error(404)
+
+    def _handle_lock(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        raw = self.rfile.read(length) if length else b""
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+            order = payload["order"]
+        except (ValueError, KeyError, TypeError):
+            self._send_json(400, {"error": "malformed JSON or missing 'order'"})
+            return
+        n = len(self.server.photos)
+        if not (isinstance(order, list) and len(order) == n
+                and sorted(order) == list(range(n))):
+            self._send_json(400, {"error": "order must be a permutation of 0..N-1"})
+            return
+        self.server.final_order = order
+        self.server.done_event.set()
+        self._send_json(200, {"ok": True})
+
+    def _send_json(self, status: int, payload: dict):
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _serve_index(self):
         template = (files(_STATIC_PKG) / "index.html").read_text()
         photos_json = json.dumps([

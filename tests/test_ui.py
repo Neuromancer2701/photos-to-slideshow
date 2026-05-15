@@ -108,3 +108,70 @@ def test_get_thumb_out_of_range_returns_404(tmp_path: Path):
         with pytest.raises(urllib.error.HTTPError) as ei:
             urllib.request.urlopen(url + "/thumb/99")
     assert ei.value.code == 404
+
+
+def _post_json(url: str, payload: dict) -> tuple[int, dict]:
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read().decode("utf-8"))
+
+
+def test_post_lock_with_valid_permutation_returns_ok_and_sets_event(tmp_path: Path):
+    photos = [make_jpeg(tmp_path / f"{i}.jpg") for i in range(3)]
+    thumbs = tmp_path / "thumbs"
+    thumbs.mkdir()
+    ui.generate_thumbnails(photos, thumbs)
+    with _running_server(photos, thumbs) as (server, url):
+        status, body = _post_json(url + "/lock", {"order": [2, 0, 1]})
+    assert status == 200
+    assert body == {"ok": True}
+    assert server.final_order == [2, 0, 1]
+    assert server.done_event.is_set()
+
+
+def test_post_lock_with_non_permutation_returns_400(tmp_path: Path):
+    photos = [make_jpeg(tmp_path / f"{i}.jpg") for i in range(3)]
+    thumbs = tmp_path / "thumbs"
+    thumbs.mkdir()
+    ui.generate_thumbnails(photos, thumbs)
+    with _running_server(photos, thumbs) as (server, url):
+        status, _ = _post_json(url + "/lock", {"order": [0, 0, 1]})
+    assert status == 400
+    assert not server.done_event.is_set()
+
+
+def test_post_lock_with_wrong_length_returns_400(tmp_path: Path):
+    photos = [make_jpeg(tmp_path / f"{i}.jpg") for i in range(3)]
+    thumbs = tmp_path / "thumbs"
+    thumbs.mkdir()
+    ui.generate_thumbnails(photos, thumbs)
+    with _running_server(photos, thumbs) as (server, url):
+        status, _ = _post_json(url + "/lock", {"order": [0, 1]})
+    assert status == 400
+    assert not server.done_event.is_set()
+
+
+def test_post_lock_with_malformed_json_returns_400(tmp_path: Path):
+    photos = [make_jpeg(tmp_path / f"{i}.jpg") for i in range(3)]
+    thumbs = tmp_path / "thumbs"
+    thumbs.mkdir()
+    ui.generate_thumbnails(photos, thumbs)
+    with _running_server(photos, thumbs) as (server, url):
+        req = urllib.request.Request(
+            url + "/lock",
+            data=b"{not json",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as ei:
+            urllib.request.urlopen(req)
+    assert ei.value.code == 400
+    assert not server.done_event.is_set()
