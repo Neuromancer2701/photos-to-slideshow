@@ -91,6 +91,7 @@ whole playlist loops to fill the remaining time.
 | `--audio-fade` | `1.0` | fade-in/out duration; `0` to disable |
 | `--end-fade` | `1.0` | video fade-to-black at end |
 | `--min-slide-duration` | `0` | minimum seconds per slide; loops audio to cover the longer video |
+| `--reorder` | off | open a browser UI to drag-reorder photos before rendering |
 | `--keep-temp` | off | keep working temp dirs (debugging) |
 | `--verbose` / `-v` | off | show ffmpeg output |
 | `--quiet` / `-q` | off | suppress progress bar |
@@ -101,16 +102,16 @@ Input: `.jpg`, `.jpeg`, `.png`, `.heic`, `.heif`.
 
 Sort order, in priority order:
 
-1. EXIF `DateTimeOriginal`
-2. Google Photos Takeout JSON sidecar — if a file matching
+1. Google Photos Takeout JSON sidecar — if a file matching
    `{photo}.supplemental-metadata.json` (or any of the truncated forms
    Google generates to fit its 51-char total-filename budget — for example
    `.supplemental-meta.json`, `.suppleme.json`, or even just `{prefix}.json`
    when the photo name itself is too long — or the older `{photo}.json`)
    sits next to the photo, its `photoTakenTime.timestamp` is used. Drop the
    whole Takeout export into a directory or zip and the dates "just work"
-   even when Google stripped the EXIF.
-3. Photos with no EXIF and no Takeout JSON are **appended at the end** of
+   even when Google stripped or rewrote the EXIF.
+2. EXIF `DateTimeOriginal`
+3. Photos with no Takeout JSON and no EXIF are **appended at the end** of
    the slideshow (sorted among themselves by file mtime). mtime is
    intentionally not interleaved with real capture dates because downloaded
    photos pick up their download time rather than their capture time. A

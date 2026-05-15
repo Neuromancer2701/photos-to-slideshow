@@ -64,9 +64,15 @@
     const tile = document.createElement('div');
     tile.className = 'tile';
     tile.dataset.photoId = p.i;
-    tile.innerHTML =
-      '<img loading="lazy" src="/thumb/' + p.i + '">' +
-      '<div class="name" title="' + p.name + '">' + p.name + '</div>';
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.src = '/thumb/' + p.i;
+    const label = document.createElement('div');
+    label.className = 'name';
+    label.title = p.name;
+    label.textContent = p.name;
+    tile.appendChild(img);
+    tile.appendChild(label);
     grid.appendChild(tile);
   }
   Sortable.create(grid, { animation: 150 });
