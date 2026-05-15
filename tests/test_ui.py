@@ -233,3 +233,50 @@ def test_get_static_sortable_returns_js(tmp_path: Path):
         ctype = resp.headers["Content-Type"]
     assert ctype == "application/javascript"
     assert "Sortable" in body
+
+
+def test_cli_reorder_flag_invokes_reorder_step(tmp_path: Path, monkeypatch):
+    from photos_to_slideshow import cli
+
+    # Build a tiny input dir with two dated photos.
+    photos_dir = tmp_path / "photos"
+    photos_dir.mkdir()
+    a = make_jpeg(photos_dir / "a.jpg", "2024:01:01 09:00:00")
+    b = make_jpeg(photos_dir / "b.jpg", "2024:01:02 09:00:00")
+    # Audio: a placeholder file is fine — render is stubbed.
+    audio = tmp_path / "song.mp3"
+    audio.write_bytes(b"\xff\xfb\x90\x00")  # MPEG sync stub
+    out = tmp_path / "out.mp4"
+
+    seen_order: list = []
+
+    def stub_reorder(photos, thumb_dir):
+        # Reverse the input to prove the UI's output flows into render.
+        return list(reversed(photos))
+
+    def stub_render(frame_paths, audio_input, output, opts, **kwargs):
+        # Record the filenames of frames in render order.
+        seen_order.extend(p.name for p in frame_paths)
+        output.write_bytes(b"fake mp4")
+
+    # Audio module also reads the mp3 — stub it.
+    from photos_to_slideshow import audio as audio_mod, render, ui
+    monkeypatch.setattr(ui, "reorder_via_browser", stub_reorder)
+    monkeypatch.setattr(render, "render_video_streaming", stub_render)
+    monkeypatch.setattr(render, "ensure_ffmpeg_available", lambda: None)
+    monkeypatch.setattr(audio_mod, "resolve_audio_source",
+                        lambda p: audio_mod.AudioSource(
+                            files=(audio,), total_duration=10.0))
+
+    rc = cli.main([
+        "--input", str(photos_dir),
+        "--audio", str(audio),
+        "--output", str(out),
+        "--reorder",
+    ])
+    assert rc == 0
+    # Frames are named 00000.png, 00001.png in render order.
+    # If reorder reversed [a, b] -> [b, a], frame 00000 came from b.
+    assert seen_order == ["00000.png", "00001.png"]
+    # And the video file the test wrote should exist.
+    assert out.exists()

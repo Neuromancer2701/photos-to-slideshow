@@ -47,6 +47,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--missing-date", choices=["mtime", "filename", "skip"],
                         default="mtime", dest="missing_date",
                         help="(only 'mtime' is implemented in v0.1)")
+    parser.add_argument("--reorder", action="store_true",
+                        help="Open a browser-based UI to manually reorder "
+                             "photos before rendering. Drag thumbnails and "
+                             "click 'Lock & Render' to continue.")
     parser.add_argument("--keep-temp", action="store_true", dest="keep_temp")
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--quiet", "-q", action="store_true")
@@ -100,6 +104,7 @@ def _run(args) -> int:
     # Step 1: resolve input
     resolved = inputs.resolve(args.input)
     frames_dir: Path | None = None
+    thumb_dir: Path | None = None
     try:
         # Step 2: scan & sort
         all_paths = list(inputs.iter_image_files(resolved.root))
@@ -112,6 +117,20 @@ def _run(args) -> int:
                 f"EXIF/JSON metadata; placing them at the end of the slideshow",
                 file=sys.stderr,
             )
+
+        # Step 2.5: optional reorder UI
+        if args.reorder:
+            if len(sorted_paths) < 2:
+                print("info: only one photo, skipping reorder UI",
+                      file=sys.stderr)
+            else:
+                from . import ui  # lazy import — only paid when --reorder is on
+                thumb_dir = Path(tempfile.mkdtemp(prefix="photos_to_slideshow_thumbs_"))
+                surviving = ui.generate_thumbnails(sorted_paths, thumb_dir)
+                if not surviving:
+                    raise NoUsablePhotosError(
+                        "All images failed to decode for thumbnails")
+                sorted_paths = ui.reorder_via_browser(surviving, thumb_dir)
 
         # Step 3: pre-render frames
         frames_dir = Path(tempfile.mkdtemp(prefix="photos_to_slideshow_frames_"))
@@ -212,6 +231,8 @@ def _run(args) -> int:
             resolved.cleanup()
             if frames_dir is not None and frames_dir.exists():
                 shutil.rmtree(frames_dir)
+            if thumb_dir is not None and thumb_dir.exists():
+                shutil.rmtree(thumb_dir)
 
 
 if __name__ == "__main__":  # pragma: no cover
