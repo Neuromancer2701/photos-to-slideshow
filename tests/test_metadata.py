@@ -2,24 +2,12 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from PIL import Image
 
 from photos_to_slideshow.metadata import (
     DateSource,
     extract_date,
 )
-
-
-def _make_jpeg(path: Path, exif_datetime: str | None = None) -> Path:
-    img = Image.new("RGB", (10, 10), "red")
-    if exif_datetime is None:
-        img.save(path, "JPEG")
-    else:
-        exif = img.getexif()
-        # 0x9003 = DateTimeOriginal
-        exif[0x9003] = exif_datetime
-        img.save(path, "JPEG", exif=exif)
-    return path
+from tests._helpers import make_jpeg as _make_jpeg
 
 
 def test_extract_date_from_exif(tmp_path: Path):
