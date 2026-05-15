@@ -3,6 +3,7 @@
 import contextlib
 import json
 import threading
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -81,3 +82,29 @@ def test_get_root_serves_html_with_injected_photos(tmp_path: Path):
     # Stable IDs are 0 and 1
     assert '"i": 0' in body or '"i":0' in body
     assert '"i": 1' in body or '"i":1' in body
+
+
+def test_get_thumb_returns_jpeg(tmp_path: Path):
+    a = make_jpeg(tmp_path / "a.jpg")
+    thumbs = tmp_path / "thumbs"
+    thumbs.mkdir()
+    ui.generate_thumbnails([a], thumbs)
+    with _running_server([a], thumbs) as (_, url):
+        resp = urllib.request.urlopen(url + "/thumb/0")
+        body = resp.read()
+        ctype = resp.headers["Content-Type"]
+    assert ctype == "image/jpeg"
+    assert len(body) > 0
+    # JPEG magic bytes
+    assert body[:3] == b"\xff\xd8\xff"
+
+
+def test_get_thumb_out_of_range_returns_404(tmp_path: Path):
+    a = make_jpeg(tmp_path / "a.jpg")
+    thumbs = tmp_path / "thumbs"
+    thumbs.mkdir()
+    ui.generate_thumbnails([a], thumbs)
+    with _running_server([a], thumbs) as (_, url):
+        with pytest.raises(urllib.error.HTTPError) as ei:
+            urllib.request.urlopen(url + "/thumb/99")
+    assert ei.value.code == 404

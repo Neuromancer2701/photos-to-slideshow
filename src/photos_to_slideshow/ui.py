@@ -77,8 +77,31 @@ class _ReorderHandler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         if self.path == "/":
             self._serve_index()
+        elif self.path.startswith("/thumb/"):
+            self._serve_thumb(self.path[len("/thumb/"):])
         else:
             self.send_error(404)
+
+    def _serve_thumb(self, index_str: str):
+        try:
+            i = int(index_str)
+        except ValueError:
+            self.send_error(404)
+            return
+        if not (0 <= i < len(self.server.photos)):
+            self.send_error(404)
+            return
+        thumb_path = self.server.thumb_dir / f"{i}.jpg"
+        try:
+            data = thumb_path.read_bytes()
+        except OSError:
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _serve_index(self):
         template = (files(_STATIC_PKG) / "index.html").read_text()
