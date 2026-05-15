@@ -1,5 +1,9 @@
 """Unit + HTTP integration tests for the reorder UI module."""
 
+import contextlib
+import json
+import threading
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -48,3 +52,32 @@ def test_generate_thumbnails_skips_unreadable_image(tmp_path: Path, capsys):
     assert not (out / "1.jpg").exists()
     err = capsys.readouterr().err
     assert "bad.jpg" in err
+
+
+@contextlib.contextmanager
+def _running_server(photos, thumb_dir):
+    server = ui._build_server(photos, thumb_dir)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        yield server, f"http://127.0.0.1:{port}"
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+
+
+def test_get_root_serves_html_with_injected_photos(tmp_path: Path):
+    a = make_jpeg(tmp_path / "alpha.jpg")
+    b = make_jpeg(tmp_path / "beta.jpg")
+    thumbs = tmp_path / "thumbs"
+    thumbs.mkdir()
+    ui.generate_thumbnails([a, b], thumbs)
+    with _running_server([a, b], thumbs) as (_, url):
+        body = urllib.request.urlopen(url + "/").read().decode("utf-8")
+    assert "window.PHOTOS" in body
+    assert "alpha.jpg" in body
+    assert "beta.jpg" in body
+    # Stable IDs are 0 and 1
+    assert '"i": 0' in body or '"i":0' in body
+    assert '"i": 1' in body or '"i":1' in body
