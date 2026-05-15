@@ -175,3 +175,48 @@ def test_post_lock_with_malformed_json_returns_400(tmp_path: Path):
             urllib.request.urlopen(req)
     assert ei.value.code == 400
     assert not server.done_event.is_set()
+
+
+class _StubBrowser:
+    def open(self, url: str) -> bool:
+        return True
+
+
+def test_reorder_via_browser_returns_permuted_paths(tmp_path: Path, monkeypatch):
+    photos = [make_jpeg(tmp_path / f"{i}.jpg") for i in range(3)]
+    thumbs = tmp_path / "thumbs"
+    thumbs.mkdir()
+    ui.generate_thumbnails(photos, thumbs)
+    # Don't actually open a browser during the test.
+    monkeypatch.setattr(ui, "webbrowser", _StubBrowser())
+
+    # The test must POST /lock from another thread while
+    # reorder_via_browser is blocking the main thread on done_event.
+    posted: dict = {}
+
+    def post_when_ready():
+        # Poll the dict the wrapped _build_server populates with the URL.
+        import time
+        for _ in range(200):
+            url = posted.get("url")
+            if url:
+                _post_json(url + "/lock", {"order": [2, 0, 1]})
+                return
+            time.sleep(0.02)
+
+    poster = threading.Thread(target=post_when_ready, daemon=True)
+    poster.start()
+
+    # Patch _build_server to record the URL once the server is bound.
+    original_build = ui._build_server
+
+    def recording_build(photos, thumb_dir):
+        server = original_build(photos, thumb_dir)
+        posted["url"] = f"http://127.0.0.1:{server.server_address[1]}"
+        return server
+
+    monkeypatch.setattr(ui, "_build_server", recording_build)
+
+    result = ui.reorder_via_browser(photos, thumbs)
+    poster.join(timeout=2)
+    assert result == [photos[2], photos[0], photos[1]]

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from pathlib import Path
@@ -17,6 +18,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from . import images
+from .errors import SlideshowError
 
 
 def generate_thumbnails(
@@ -149,3 +151,34 @@ class _ReorderHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+
+def reorder_via_browser(photos: list[Path], thumb_dir: Path) -> list[Path]:
+    """Open a browser UI to drag-reorder photos. Returns the new order.
+
+    Blocks the calling thread on the server's done_event until the user
+    clicks "Lock & Render" in the UI. Ctrl-C from the terminal propagates
+    a KeyboardInterrupt, which cli.main catches as exit 130.
+    """
+    try:
+        server = _build_server(photos, thumb_dir)
+    except OSError as e:
+        raise SlideshowError(f"could not bind local server: {e}") from e
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_address[1]}"
+    print(f"Reorder UI: {url}", file=sys.stderr)
+    print(
+        'Reorder UI: drag thumbnails, click "Lock & Render". '
+        "Ctrl-C here to cancel.",
+        file=sys.stderr,
+    )
+    if not webbrowser.open(url):
+        print(f"Open this URL in a browser: {url}", file=sys.stderr)
+    try:
+        server.done_event.wait()
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+    assert server.final_order is not None  # done_event implies this is set
+    return [photos[i] for i in server.final_order]
