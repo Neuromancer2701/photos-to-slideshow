@@ -81,8 +81,22 @@ class _ReorderHandler(BaseHTTPRequestHandler):
             self._serve_index()
         elif self.path.startswith("/thumb/"):
             self._serve_thumb(self.path[len("/thumb/"):])
+        elif self.path == "/static/sortable.min.js":
+            self._serve_static("sortable.min.js", "application/javascript")
         else:
             self.send_error(404)
+
+    def _serve_static(self, name: str, content_type: str):
+        try:
+            data = (files(_STATIC_PKG) / name).read_bytes()
+        except (FileNotFoundError, OSError):
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _serve_thumb(self, index_str: str):
         try:

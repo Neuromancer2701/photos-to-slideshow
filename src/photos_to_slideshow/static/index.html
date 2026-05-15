@@ -1,6 +1,102 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>Reorder Photos</title></head>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Reorder Photos</title>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; background: #111; color: #eee; }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: #222; padding: 12px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid #333;
+  }
+  header h1 { font-size: 16px; font-weight: 600; margin: 0; }
+  header .count { color: #888; font-weight: 400; margin-left: 8px; }
+  #lock {
+    padding: 8px 16px; font-size: 14px; font-weight: 600;
+    background: #2d7; color: #111; border: 0; border-radius: 4px; cursor: pointer;
+  }
+  #lock:hover { background: #4e9; }
+  #lock:disabled { background: #555; color: #888; cursor: default; }
+  #grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px; padding: 16px;
+  }
+  .tile {
+    background: #1a1a1a; border: 1px solid #333; border-radius: 4px;
+    overflow: hidden; cursor: grab; user-select: none;
+  }
+  .tile.sortable-chosen { cursor: grabbing; }
+  .tile.sortable-ghost { opacity: 0.4; }
+  .tile img { display: block; width: 100%; height: 160px; object-fit: contain; background: #000; }
+  .tile .name { padding: 6px 8px; font-size: 11px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #toast {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: #a33; color: #fff; padding: 8px 16px; border-radius: 4px;
+    display: none;
+  }
+  #done {
+    position: fixed; inset: 0; background: rgba(17,17,17,0.95);
+    display: none; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+</style>
+</head>
 <body>
+<header>
+  <h1>Reorder Photos <span class="count" id="count"></span></h1>
+  <button id="lock">Lock &amp; Render</button>
+</header>
+<div id="grid"></div>
+<div id="toast"></div>
+<div id="done">Rendering — you can close this tab.</div>
 <script>/*__PHOTOS_INJECT__*/</script>
-<p>Reorder UI placeholder — Task 7 replaces this.</p>
-</body></html>
+<script src="/static/sortable.min.js"></script>
+<script>
+(function () {
+  const grid = document.getElementById('grid');
+  const lockBtn = document.getElementById('lock');
+  const toast = document.getElementById('toast');
+  const done = document.getElementById('done');
+  document.getElementById('count').textContent = '(' + window.PHOTOS.length + ')';
+  for (const p of window.PHOTOS) {
+    const tile = document.createElement('div');
+    tile.className = 'tile';
+    tile.dataset.photoId = p.i;
+    tile.innerHTML =
+      '<img loading="lazy" src="/thumb/' + p.i + '">' +
+      '<div class="name" title="' + p.name + '">' + p.name + '</div>';
+    grid.appendChild(tile);
+  }
+  Sortable.create(grid, { animation: 150 });
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.style.display = 'block';
+    setTimeout(() => { toast.style.display = 'none'; }, 3000);
+  }
+  lockBtn.addEventListener('click', async () => {
+    lockBtn.disabled = true;
+    const order = [...grid.children].map(el => +el.dataset.photoId);
+    try {
+      const resp = await fetch('/lock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({error: 'unknown'}));
+        showToast('Lock failed: ' + (err.error || resp.status));
+        lockBtn.disabled = false;
+        return;
+      }
+      done.style.display = 'flex';
+    } catch (e) {
+      showToast('Network error: ' + e.message);
+      lockBtn.disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>

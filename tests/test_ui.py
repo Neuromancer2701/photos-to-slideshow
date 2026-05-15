@@ -220,3 +220,16 @@ def test_reorder_via_browser_returns_permuted_paths(tmp_path: Path, monkeypatch)
     result = ui.reorder_via_browser(photos, thumbs)
     poster.join(timeout=2)
     assert result == [photos[2], photos[0], photos[1]]
+
+
+def test_get_static_sortable_returns_js(tmp_path: Path):
+    a = make_jpeg(tmp_path / "a.jpg")
+    thumbs = tmp_path / "thumbs"
+    thumbs.mkdir()
+    ui.generate_thumbnails([a], thumbs)
+    with _running_server([a], thumbs) as (_, url):
+        resp = urllib.request.urlopen(url + "/static/sortable.min.js")
+        body = resp.read().decode("utf-8")
+        ctype = resp.headers["Content-Type"]
+    assert ctype == "application/javascript"
+    assert "Sortable" in body
