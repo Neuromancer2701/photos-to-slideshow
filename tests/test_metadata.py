@@ -68,12 +68,12 @@ def test_extract_date_uses_takeout_json_when_no_exif(tmp_path: Path):
     assert result.timestamp == datetime.fromtimestamp(1424221441)
 
 
-def test_extract_date_prefers_exif_over_takeout_json(tmp_path: Path):
+def test_extract_date_prefers_takeout_json_over_exif(tmp_path: Path):
     p = _make_jpeg(tmp_path / "x.jpg", "2024:06:15 14:30:00")
-    _write_takeout_json(p, 1000000000)  # would be 2001 if used
+    _write_takeout_json(p, 1000000000)  # 2001
     result = extract_date(p)
-    assert result.source is DateSource.EXIF
-    assert result.timestamp == datetime(2024, 6, 15, 14, 30, 0)
+    assert result.source is DateSource.JSON
+    assert result.timestamp == datetime.fromtimestamp(1000000000)
 
 
 def test_extract_date_supports_legacy_dot_json_suffix(tmp_path: Path):

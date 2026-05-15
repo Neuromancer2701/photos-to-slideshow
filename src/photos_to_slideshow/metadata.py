@@ -130,15 +130,15 @@ def _read_takeout_json_datetime(path: Path) -> datetime | None:
 def extract_date(path: Path) -> DatedPhoto:
     """Return the photo's best-known date with its source.
 
-    Order of preference: EXIF DateTimeOriginal -> Google Takeout JSON
-    sidecar (photoTakenTime) -> file mtime.
+    Order of preference: Google Takeout JSON sidecar (photoTakenTime) ->
+    EXIF DateTimeOriginal -> file mtime.
     """
-    ts = _read_exif_datetime(path)
-    if ts is not None:
-        return DatedPhoto(path=path, timestamp=ts, source=DateSource.EXIF)
     ts = _read_takeout_json_datetime(path)
     if ts is not None:
         return DatedPhoto(path=path, timestamp=ts, source=DateSource.JSON)
+    ts = _read_exif_datetime(path)
+    if ts is not None:
+        return DatedPhoto(path=path, timestamp=ts, source=DateSource.EXIF)
     mtime = datetime.fromtimestamp(path.stat().st_mtime)
     return DatedPhoto(path=path, timestamp=mtime, source=DateSource.MTIME)
 
